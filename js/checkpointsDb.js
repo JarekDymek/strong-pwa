@@ -1,7 +1,31 @@
 // Plik: js/checkpointsDb.js
 // Cel: Zarządza bazą danych IndexedDB dla punktów kontrolnych.
 
-import { dbAction } from './db-dexie.js';
+// Używamy natywnego IDB bezpośrednio – checkpointsDb to osobna baza,
+// niezależna od bazy Dexie (StrongmanDB_v12_Competitors).
+// Nie importujemy dbAction z db-dexie.js, bo tamta funkcja szuka tabel
+// w instancji Dexie, która nie zawiera store'u 'checkpoints'.
+
+function idbAction(db, storeName, mode, action, data) {
+    return new Promise((resolve, reject) => {
+        if (!db) return reject('CheckpointsDB nie jest zainicjowana.');
+        try {
+            const transaction = db.transaction(storeName, mode);
+            const store = transaction.objectStore(storeName);
+            const request = action(store, data);
+            if (request && typeof request.onsuccess !== 'undefined') {
+                request.onerror = e => reject(e.target.error);
+                request.onsuccess = e => resolve(e.target.result);
+            } else {
+                // akcja nie zwróciła IDBRequest (np. store.clear() zawsze zwraca request)
+                transaction.oncomplete = () => resolve(undefined);
+                transaction.onerror = e => reject(e.target.error);
+            }
+        } catch (error) {
+            reject(error);
+        }
+    });
+}
 
 
 // Helper: sanitize object so it can be cloned/stored in IndexedDB.
@@ -75,32 +99,29 @@ export async function saveCheckpoint(obj) {
     // create key if not provided
     const key = obj && obj.key ? obj.key : 'cp_' + Date.now();
     const record = { key, ...(obj || {}) };
-    // use dbAction imported at top; checkpointsDb module already has dbAction available in scope
     record.state = sanitizeForIDB(record.state) || {};
-        record.state = sanitizeForIDB(record.state) || {};
-        return await dbAction(checkpointsDb, STORE_NAME, 'readwrite', (store, r) => store.put(r), record);
+    return await idbAction(checkpointsDb, STORE_NAME, 'readwrite', (store, r) => store.put(r), record);
 }
 
 export async function deleteCheckpoint(key) {
-    return await dbAction(checkpointsDb, STORE_NAME, 'readwrite', (store, k) => store.delete(k), key);
+    return await idbAction(checkpointsDb, STORE_NAME, 'readwrite', (store, k) => store.delete(k), key);
 }
 
 export async function saveCheckpointDB(key, data) {
     const record = { key, ...data };
     record.state = sanitizeForIDB(record.state) || {};
-        record.state = sanitizeForIDB(record.state) || {};
-        return await dbAction(checkpointsDb, STORE_NAME, 'readwrite', (store, r) => store.put(r), record);
+    return await idbAction(checkpointsDb, STORE_NAME, 'readwrite', (store, r) => store.put(r), record);
 }
 
 export async function getCheckpointsDB() {
-    const checkpoints = await dbAction(checkpointsDb, STORE_NAME, 'readonly', store => store.getAll());
+    const checkpoints = await idbAction(checkpointsDb, STORE_NAME, 'readonly', store => store.getAll());
     return checkpoints.sort((a, b) => b.key.localeCompare(a.key));
 }
 
 export async function deleteCheckpointDB(key) {
-    return await dbAction(checkpointsDb, STORE_NAME, 'readwrite', (store, k) => store.delete(k), key);
+    return await idbAction(checkpointsDb, STORE_NAME, 'readwrite', (store, k) => store.delete(k), key);
 }
 
 export async function clearAllCheckpointsDB() {
-    return await dbAction(checkpointsDb, STORE_NAME, 'readwrite', store => store.clear());
+    return await idbAction(checkpointsDb, STORE_NAME, 'readwrite', store => store.clear());
 }
