@@ -45,8 +45,36 @@ export async function seedEventsDatabaseIfNeeded() {
 
 export async function importEventsFromJson(jsonArray) {
   if (!Array.isArray(jsonArray)) throw new Error('importEventsFromJson expects an array');
-  // optionally clear existing and add all
-  await clearEventsDatabase();
-  await Promise.all(jsonArray.map(e => addEvent(e)));
-  showNotification('Zaimportowano konkurencje z pliku JSON.', 'success', 2500);
+  let added = 0, updated = 0;
+  const currentEvents = await getEvents();
+  const currentNames = new Map(currentEvents.map(e => [e.name.toLowerCase(), e]));
+  for (const importedEvent of jsonArray) {
+    if (!importedEvent || typeof importedEvent !== 'object' || !importedEvent.name) continue;
+    const existingEvent = currentNames.get(importedEvent.name.toLowerCase());
+    const eventToSave = { ...importedEvent };
+    delete eventToSave.id;
+    if (existingEvent) {
+      await saveEvent({ ...existingEvent, ...eventToSave });
+      updated++;
+    } else {
+      await addEvent(eventToSave);
+      added++;
+    }
+  }
+  return { added, updated };
+}
+
+export async function exportEventsToJson() {
+  const events = await getEvents();
+  const dataStr = JSON.stringify(events, null, 2);
+  const blob = new Blob([dataStr], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'strongman_baza_konkurencji.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showNotification('Baza konkurencji wyeksportowana.', 'success');
 }
